@@ -3,6 +3,7 @@
 // Current focus is ollama local LLM
 
 const std = @import("std");
+const json = @import("json");
 
 // ollama_gen_resp
 // response from generate api
@@ -31,11 +32,11 @@ pub const ollama_chat_resp = struct {
     },
     done: bool,
     total_duration: u64,
-    load_duration: u64,
-    prompt_eval_count: u32,
-    prompt_eval_duration: u64,
-    eval_count: u32,
-    eval_duration: u64,
+    // load_duration: u64,
+    // prompt_eval_count: u32,
+    // prompt_eval_duration: u64,
+    // eval_count: u32,
+    // eval_duration: u64,
 };
 
 // chat_message
@@ -73,7 +74,7 @@ const ollama_chat_req_tool = struct {
 // ollama_gen_chat
 // reaches out to ollama generate chat api with prompt
 // returns llm response
-pub fn ollama_gen_chat(allocator: std.mem.Allocator, messages: [][]const u8) anyerror![]const u8 {
+pub fn ollama_gen_chat(allocator: std.mem.Allocator, messages: []chat_message) anyerror![]const u8 {
 
     // load messages into array for chat messages in ollama chat req struct
     var oc_req_msgs = std.ArrayList(chat_message).init(allocator);
@@ -81,12 +82,7 @@ pub fn ollama_gen_chat(allocator: std.mem.Allocator, messages: [][]const u8) any
 
     for (messages) |message| {
         // create a chat_message struct
-        const cmsg = chat_message{
-            .content = message,
-            .role = "user",
-        };
-
-        try oc_req_msgs.append(cmsg);
+        try oc_req_msgs.append(message);
     }
 
     // build chat req struct
@@ -95,11 +91,6 @@ pub fn ollama_gen_chat(allocator: std.mem.Allocator, messages: [][]const u8) any
         .stream = false,
         .messages = oc_req_msgs.items,
     };
-
-    std.debug.print(
-        "\noc_req model: {s}\noc_req messages len: {d} ",
-        .{ oc_req.model, oc_req.messages.len },
-    );
 
     // convert request to a json string
     // will cause error if arraylist is passed and not arraylist.items
@@ -111,10 +102,7 @@ pub fn ollama_gen_chat(allocator: std.mem.Allocator, messages: [][]const u8) any
         json_oc_req.writer(),
     );
 
-    std.debug.print("\njson_oc_req: {s}", .{json_oc_req.items});
-
     // fetch to ollama generate api
-
     // setup http client
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
@@ -143,17 +131,12 @@ pub fn ollama_gen_chat(allocator: std.mem.Allocator, messages: [][]const u8) any
     if (resp.status == std.http.Status.ok) {
         const ollama_response = try allocator.dupe(u8, fetch_dynamic_list.items);
 
-        std.debug.print(
-            "\nollama_response: {s}",
-            .{ollama_response},
-        );
-
         // Parse JSON
         const json_parse = try std.json.parseFromSlice(
             ollama_chat_resp,
             allocator,
             ollama_response,
-            .{},
+            .{ .ignore_unknown_fields = true },
         );
         defer json_parse.deinit();
 
@@ -163,9 +146,6 @@ pub fn ollama_gen_chat(allocator: std.mem.Allocator, messages: [][]const u8) any
         const response_copy = try allocator.dupe(u8, parsed_oresp.message.content);
         allocator.free(ollama_response);
 
-        // will add detecting functions here, need to add prompt for llm to use functions
-
-        std.debug.print("Ollama Response\n{s}\n", .{response_copy});
         return response_copy;
     } else {
         std.debug.print("status not ok: {any}", .{resp.status});
